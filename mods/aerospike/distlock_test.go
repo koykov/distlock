@@ -16,32 +16,41 @@ func TestDistlock(t *testing.T) {
 	host := os.Getenv("AEROSPIKE_HOST")
 	port, err := strconv.Atoi(os.Getenv("AEROSPIKE_PORT"))
 	if err != nil || port <= 0 || port > 65535 || len(host) == 0 {
-		// no env provided, can't test
+		t.Log("no env provided, can't test")
 		return
 	}
 	ns, set := os.Getenv("AEROSPIKE_NS"), os.Getenv("AEROSPIKE_SET")
 
-	client, err := as.NewClient(host, port)
+	client0, err := as.NewClient(host, port)
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := as.NewWritePolicy(0, uint32(3600))
-	policy.RecordExistsAction = as.CREATE_ONLY
-	policy.CommitLevel = as.COMMIT_MASTER
+	policy0 := as.NewWritePolicy(0, uint32(3600))
+	policy0.RecordExistsAction = as.CREATE_ONLY
+	policy0.CommitLevel = as.COMMIT_MASTER
 
 	distlock0 := Distlock{
 		Namespace: ns,
 		SetName:   set,
 		Bins:      []string{"lock_flag"},
-		Policy:    policy,
-		Client:    client,
+		Policy:    policy0,
+		Client:    client0,
 	}
+
+	client1, err := as.NewClient(host, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy1 := as.NewWritePolicy(0, uint32(3600))
+	policy1.RecordExistsAction = as.CREATE_ONLY
+	policy1.CommitLevel = as.COMMIT_MASTER
+
 	distlock1 := Distlock{
 		Namespace: ns,
 		SetName:   set,
 		Bins:      []string{"lock_flag"},
-		Policy:    policy,
-		Client:    client,
+		Policy:    policy1,
+		Client:    client1,
 	}
 
 	t.Run("consecutive", func(t *testing.T) {
