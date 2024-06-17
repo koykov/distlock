@@ -46,7 +46,7 @@ func (l *Distlock) Unlock(key, secret string) error {
 	return l.UnlockContext(context.Background(), key, secret)
 }
 
-func (l *Distlock) UnlockContext(ctx context.Context, key, _ string) error {
+func (l *Distlock) UnlockContext(ctx context.Context, _, _ string) error {
 	l.once.Do(l.init)
 	if l.err != nil {
 		return l.err
