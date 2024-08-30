@@ -3,13 +3,15 @@ package etcd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
-	cliv3 "go.etcd.io/etcd/client/v3"
+	clnv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 type Distlock struct {
-	Client *cliv3.Client
+	Session *concurrency.Session
 
 	once sync.Once
 	err  error
@@ -24,11 +26,32 @@ func (l *Distlock) LockContext(ctx context.Context, key, secret string) (bool, e
 	if l.err != nil {
 		return false, l.err
 	}
-	_, err := l.Client.Put(ctx, key, secret)
+
+	keyL := fmt.Sprintf("%s%s%x", key, secret, l.Session.Lease())
+	cmp := clnv3.Compare(clnv3.CreateRevision(keyL), "=", 0)
+	put := clnv3.OpPut(keyL, "", clnv3.WithLease(l.Session.Lease()))
+	get := clnv3.OpGet(keyL)
+	getOwner := clnv3.OpGet(key, clnv3.WithFirstCreate()...)
+	resp, err := l.Session.Client().Txn(ctx).
+		If(cmp).
+		Then(put, getOwner).
+		Else(get, getOwner).
+		Commit()
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	rev := resp.Header.Revision
+	if !resp.Succeeded {
+		rev = resp.Responses[0].GetResponseRange().Kvs[0].CreateRevision
+	}
+
+	ownerKey := resp.Responses[1].GetResponseRange().Kvs
+	if len(ownerKey) == 0 || ownerKey[0].CreateRevision == rev {
+		// m.hdr = resp.Header
+		return true, nil
+	}
+
+	return false, ErrLocked
 }
 
 func (l *Distlock) Unlock(key, secret string) error {
@@ -40,16 +63,20 @@ func (l *Distlock) UnlockContext(ctx context.Context, key, secret string) error 
 	if l.err != nil {
 		return l.err
 	}
-	if _, err := l.Client.Delete(ctx, key); err != nil {
+	keyL := fmt.Sprintf("%s%s%x", key, secret, l.Session.Lease())
+	if _, err := l.Session.Client().Delete(ctx, keyL); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (l *Distlock) init() {
-	if l.Client == nil {
-		l.err = ErrNoClient
+	if l.Session == nil {
+		l.err = ErrNoSession
 	}
 }
 
-var ErrNoClient = errors.New("no client provided")
+var (
+	ErrNoSession = errors.New("no session provided")
+	ErrLocked    = errors.New("locked in another session")
+)
