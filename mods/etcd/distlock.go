@@ -27,9 +27,9 @@ func (l *Distlock) LockContext(ctx context.Context, key, secret string) (bool, e
 		return false, l.err
 	}
 
-	keyL := fmt.Sprintf("%s%s%x", key, secret, l.Session.Lease())
+	keyL := fmt.Sprintf("%s%x", key, l.Session.Lease())
 	cmp := clnv3.Compare(clnv3.CreateRevision(keyL), "=", 0)
-	put := clnv3.OpPut(keyL, "", clnv3.WithLease(l.Session.Lease()))
+	put := clnv3.OpPut(keyL, secret, clnv3.WithLease(l.Session.Lease()))
 	get := clnv3.OpGet(keyL)
 	getOwner := clnv3.OpGet(key, clnv3.WithFirstCreate()...)
 	resp, err := l.Session.Client().Txn(ctx).
@@ -63,9 +63,16 @@ func (l *Distlock) UnlockContext(ctx context.Context, key, secret string) error 
 	if l.err != nil {
 		return l.err
 	}
-	keyL := fmt.Sprintf("%s%s%x", key, secret, l.Session.Lease())
-	if _, err := l.Session.Client().Delete(ctx, keyL); err != nil {
+	keyL := fmt.Sprintf("%s%x", key, l.Session.Lease())
+	resp, err := l.Session.Client().Txn(ctx).
+		If(clnv3.Compare(clnv3.Value(keyL), "=", secret)).
+		Then(clnv3.OpDelete(keyL)).
+		Commit()
+	if err != nil {
 		return err
+	}
+	if !resp.Succeeded {
+		return ErrLocked
 	}
 	return nil
 }
