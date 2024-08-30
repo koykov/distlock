@@ -47,7 +47,6 @@ func (l *Distlock) LockContext(ctx context.Context, key, secret string) (bool, e
 
 	ownerKey := resp.Responses[1].GetResponseRange().Kvs
 	if len(ownerKey) == 0 || ownerKey[0].CreateRevision == rev {
-		// m.hdr = resp.Header
 		return true, nil
 	}
 
